@@ -3,8 +3,6 @@ library(KMsurv)
 library(survival)
 library(mice)
 
-
-
 mess <- read.csv("MESSdat.csv", sep="\t", header=T)
 data(drughiv)   #34 obs
 data(bcdeter)   #95 obs
@@ -46,7 +44,7 @@ legend("bottomright", legend = c("Immediate","Deferred"), col = 2:3, lty=1)
 surv2 <- with(alloauto, Surv(time, delta))
 surv3 <- with(drughiv, Surv(time, delta))
 
-surv.NAA<-function(survobj){
+surv.NAA<-function(survobj,...){
 mfit <- survfit(survobj ~ 1, conf.type = "log-log")
 fitsumm <- summary(mfit)
 H.hat <- -log(fitsumm$surv)
@@ -54,19 +52,19 @@ H.hat <- c(H.hat, H.hat[length(H.hat)])
 H.tilde<-cumsum(fitsumm$n.event/fitsumm$n.risk)
 H.tilde <- c(H.tilde, H.tilde[length(H.tilde)])
 nobs <- mfit$n
-plot(c(fitsumm$time,tail(my.fit2$time,1)+1), H.hat, xlab='time', 
+plot(c(fitsumm$time,tail(fitsumm$time,1)+1), H.hat, xlab='time', 
      ylab='cumulative hazard',
-     main= paste("Dataset,", nobs ,"obs"), type='s')
+     main= paste("Dataset,", nobs ,"obs"), type='s',...)
 points(c(fitsumm$time,tail(fitsumm$time,1)+1), H.tilde, lty=2, type='s')
-legend("bottomright", legend=c("H.hat","H.tilde"), lty=1:2)
+legend("bottomright", legend=c("H.hat","Nelson-Aalen"), lty=1:2)
 }
 
 
 
 par(mfrow=c(1,3))
-surv.NAA(surv1)
-surv.NAA(surv2)
 surv.NAA(surv3)
+surv.NAA(surv2)
+surv.NAA(surv1)
 
 
 
@@ -91,6 +89,44 @@ data(drughiv)
 
 survobj <- with(drughiv, Surv(time, delta))
 surv.NAA(survobj)
+mfit.drug <- survfit(Surv(time, delta) ~ 1,  data = drughiv, type='fleming')  #conf.type = "log-log",
+
+
+time.ties<-summary(mfit.drug)$time[summary(mfit.drug)$n.event>1]
+vec.timeties<-rep(NA,length(time.ties))
+for(i in 1:length(time.ties)) vec.timeties[i]<-sample(which(drughiv$time == time.ties[i]),1)
+drughiv.noties<-drughiv[-vec.timeties,]
+
+mfit.drug.noties <- survfit(Surv(time, delta) ~ 1,  data = drughiv.noties, type='fleming')  #conf.type = "log-log",
+
+plot(mfit.drug.noties, conf.int = T, mark.time=F, col =  1, fun="cumhaz",xlab = "Days since randomisation", ylab = "Cumulative Hazard",ylim=c(0,2.1))
+surv.NAA(with(drughiv.noties, Surv(time, delta)))
+
+
+
+
+surv.NAA.confint<-function(survobj,...){
+  mfit <- survfit(survobj ~ 1, conf.type = "log-log")
+  fitsumm <- summary(mfit)
+  H.hat <- -log(fitsumm$surv)
+  H.hat <- c(H.hat, H.hat[length(H.hat)])
+  H.tilde<-cumsum(fitsumm$n.event/fitsumm$n.risk)
+  H.tilde <- c(H.tilde, H.tilde[length(H.tilde)])
+  nobs <- mfit$n
+  mfit.NAA <- survfit(survobj ~ 1, type='fleming')  #conf.type = "log-log",
+  plot(mfit.NAA, conf.int = T, mark.time=F, col = 3, fun="cumhaz", xlab='time', 
+       ylab='cumulative hazard', main= paste("Dataset,", nobs ,"obs"))
+  points(c(fitsumm$time,tail(fitsumm$time,1)+1), H.tilde, col=3, type='s')
+  points.default(c(fitsumm$time,tail(fitsumm$time,1)+1), H.hat, type='s',col=2,...)
+  legend("bottomright", legend=c("Kaplan-Meier","Nelson-Aalen"), col=2:3,lty=1)
+}
+
+par(mfrow=c(1,3))
+surv.NAA.confint(with(drughiv.noties, Surv(time, delta)))
+surv.NAA.confint(surv2)
+surv.NAA.confint(surv1)
+
+
 
 mfit2 <- survfit(survobj ~ 1, conf.type = "log-log")
 my.fit2 <- summary(mfit2)
