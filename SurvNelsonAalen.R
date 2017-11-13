@@ -59,50 +59,10 @@ points(c(fitsumm$time,tail(fitsumm$time,1)+1), H.tilde, lty=2, type='s')
 legend("bottomright", legend=c("H.hat","Nelson-Aalen"), lty=1:2)
 }
 
-
-
 par(mfrow=c(1,3))
 surv.NAA(surv3)
 surv.NAA(surv2)
 surv.NAA(surv1)
-
-
-
-# diff.vec0<-c(NAAestim0[1],diff(NAAestim0))
-# var.NAA0<-cumsum(diff.vec0*(diffvec0-1))
-# diff.vec1<-c(NAAestim1[1],diff(NAAestim1))
-# var.NAA1<-cumsum(diff.vec1^2)
-# diff.vec.all<-c(NAAestimator[1],diff(NAAestimator))
-# var.NAA.all<-cumsum(diff.vec.all^2)
-# 
-# matplot(c(NAAestim0,NAAestim0-2*sqrt(var.NAA),NAAestim0+2*sqrt(var.NAA)))
-# 
-# 
-# plot(mess_trt0$intseiz1,NAAestim0,ylab='Cumulative hazard', ylim=c(0,1),xlab='Time (in days)',col=2)
-# points(NAAestim0*exp(-2*sqrt(var.NAA)/NAAestim0))
-# points(NAAestim0*exp(2*sqrt(var.NAA)/NAAestim0))
-
-
-###scaling#############################################
-
-data(drughiv)  
-
-survobj <- with(drughiv, Surv(time, delta))
-surv.NAA(survobj)
-mfit.drug <- survfit(Surv(time, delta) ~ 1,  data = drughiv, type='fleming')  #conf.type = "log-log",
-
-
-time.ties<-summary(mfit.drug)$time[summary(mfit.drug)$n.event>1]
-vec.timeties<-rep(NA,length(time.ties))
-for(i in 1:length(time.ties)) vec.timeties[i]<-sample(which(drughiv$time == time.ties[i]),1)
-drughiv.noties<-drughiv[-vec.timeties,]
-
-mfit.drug.noties <- survfit(Surv(time, delta) ~ 1,  data = drughiv.noties, type='fleming')  #conf.type = "log-log",
-
-plot(mfit.drug.noties, conf.int = T, mark.time=F, col =  1, fun="cumhaz",xlab = "Days since randomisation", ylab = "Cumulative Hazard",ylim=c(0,2.1))
-surv.NAA(with(drughiv.noties, Surv(time, delta)))
-
-
 
 
 surv.NAA.confint<-function(survobj,...){
@@ -121,17 +81,80 @@ surv.NAA.confint<-function(survobj,...){
   legend("bottomright", legend=c("Kaplan-Meier","Nelson-Aalen"), col=2:3,lty=1)
 }
 
+
+data(drughiv)  
+survobj <- with(drughiv, Surv(time, delta))
+surv.NAA(survobj)
+mfit.drug <- survfit(Surv(time, delta) ~ 1,  data = drughiv, type='fleming')  #conf.type = "log-log",
+time.ties<-summary(mfit.drug)$time[summary(mfit.drug)$n.event>1]
+vec.timeties<-rep(NA,length(time.ties))
+for(i in 1:length(time.ties)) vec.timeties[i]<-sample(which(drughiv$time == time.ties[i]),1)
+drughiv.noties<-drughiv[-vec.timeties,]
+mfit.drug.noties <- survfit(Surv(time, delta) ~ 1,  data = drughiv.noties, type='fleming')  #conf.type = "log-log",
+plot(mfit.drug.noties, conf.int = T, mark.time=F, col =  1, fun="cumhaz",xlab = "Days since randomisation", ylab = "Cumulative Hazard",ylim=c(0,2.1))
+surv.NAA(with(drughiv.noties, Surv(time, delta)))
+
 par(mfrow=c(1,3))
 surv.NAA.confint(with(drughiv.noties, Surv(time, delta)))
 surv.NAA.confint(surv2)
 surv.NAA.confint(surv1)
 
+### Test ##################################################################
+
+library(YPmodel)
+data(gastric)
+names(gastric)<-c("time","delta","trt")
+survgastric <- with(gastric, Surv(time, delta))
+surv.NAA(survgastric)
+mfit.gastric.all <- survfit(survgastric ~ 1,  data = gastric, type='fleming')  #conf.type = "log-log",
+mfit.gastric.trt <- survfit(survgastric ~ trt,  data = gastric, type='fleming')  #conf.type = "log-log",
+par(mfrow=c(1,2))
+plot(mfit.gastric, conf.int = F, mark.time=F, col = 1:2, xlab='time', 
+     ylab='Survival')
+legend("topright", legend=c("CT only","CT + RT"), col=1:2,lty=1)
+plot(mfit.gastric, conf.int = F, mark.time=F, col = 1:2, fun="cumhaz", xlab='time', 
+     ylab='cumulative hazard')
+legend("bottomright", legend=c("CT only","CT + RT"), col=1:2,lty=1)
 
 
-mfit2 <- survfit(survobj ~ 1, conf.type = "log-log")
-my.fit2 <- summary(mfit2)
-h.sort.of2 <- my.fit2$n.event / my.fit2$n.risk
+###renyi.test function#################################################################
 
-scaledt<-my.fit2$time/max(my.fit2$time)
-n<-sum(my.fit2$n.event)
-n*scaledt
+renyi.test<-function(summary.pooled,summary.strata,type.test=c("two-sided","lower")){
+library(plyr)
+library(dplyr)
+summ.all<-as.data.frame(with(summary(summary.pooled),cbind(time,n.risk,n.event)))
+summ.trt1<-filter(as.data.frame(with(summary(summary.strata),cbind(time,n.risk,n.event,strata))),strata==1)[,1:3]
+summ.trt2<-filter(as.data.frame(with(summary(summary.strata),cbind(time,n.risk,n.event,strata))),strata==2)[,1:3]
+dftab<-join_all(list(summ.all, summ.trt1, summ.trt2), by='time', type='left')
+names(dftab)[-1]<-c("n.riskALL","n.eventALL","n.risk1","n.event1","n.risk2","n.event2")
+if(is.na(dftab[1,4])) dftab[1,4:5]<-c(summ.trt1$n.risk[1],0)
+if(is.na(dftab[1,6])) dftab[1,6:7]<-c(summ.trt2$n.risk[1],0)
+for(i in 2:dim(dftab)[1]){
+  if(is.na(dftab[i,4])) dftab[i,4:5]<-c(dftab[i-1,4]-dftab[i-1,5],0)
+  if(is.na(dftab[i,6])) dftab[i,6:7]<-c(dftab[i-1,6]-dftab[i-1,7],0)
+}
+  
+z.ti<-cumsum(with(dftab,n.event1-n.risk1*(n.eventALL/n.riskALL)))
+if(type.test=="two-sided") z.ti<-abs(z.ti)
+
+plot(dftab$time,z.ti,type="l",xlab="Time",ylab="Z-statistic")
+supZt<-max(z.ti)
+supt<-dftab$time[which.max(z.ti)]
+abline(v=supt,lty=3,col=2)
+
+tau.endpoint<-tail(which(with(dftab,n.risk1*n.risk2>0)),1)
+var.estim.endpoint<-cumsum(with(dftab,((n.risk1*n.risk2)/n.riskALL^2)*n.eventALL*(n.riskALL-n.eventALL)/(n.riskALL-1)))[tau.endpoint]
+Q.stat<-supZt/sqrt(var.estim.endpoint)
+
+prob.Qstat<-function(Q.stat){
+  k<-0:100
+  temp<-((-1)^k)/(2*k+1)
+  temp<-temp*exp(-pi^2*(2*k+1)^2/(8*Q.stat^2))    ###dftab$time[tau.endpoint]
+  1-4*sum(temp)/pi
+}
+p.val<-ifelse(type.test=="two-sided",prob.Qstat(Q.stat),2*pnorm(-Q.stat))
+cat("\nRenyi test statistic Q =",Q.stat,"\nAlternative hypothesis:",type.test,"\np-value =",p.val)
+}
+
+renyi.test(summary.pooled=mfit.gastric.all,summary.strata=mfit.gastric.trt,type.test="two-sided")
+renyi.test(summary.pooled=mfit.gastric.all,summary.strata=mfit.gastric.trt,type.test="lower")
