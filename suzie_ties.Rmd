@@ -1,0 +1,219 @@
+---
+title: "Nelson-Aalen ties"
+author: "Suzie Brown"
+date: "13 November 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)#
+
+library(survival)
+```
+
+## Define functions
+```{r}
+makedata <- function(nobs=100, lambda=1) { #sample the uncensored event times from exponential distn
+  T <- rexp(nobs, lambda)
+  T.rnd <- round(T, digits=2)
+  cbind(T, T.rnd)
+}
+
+censoring <- function(T, p=0.3){ # censor u.a.r.
+  T.cens <- sample(length(T), floor(length(T)*p))
+  delta <- rep(1, length(T))
+  delta[T.cens] <- 0
+  delta
+}
+```
+
+## No ties
+```{r}
+y <- makedata()
+delta <- censoring(y[,1])
+ysurv <- Surv(y[,1], delta)
+yfit <- summary(survfit(ysurv~1))
+
+NAest <- cumsum(yfit$n.event/yfit$n.risk) # Nelson-Aalen estimator
+NAvar <- cumsum(yfit$n.event/yfit$n.risk^2) # Nelson-Aalen variance estimator
+```
+
+### Plot results
+```{r}
+plot(yfit$time, NAest, col=4, type='S', xlab="time", ylab="cumulative hazard") # Nelson-Aalen estimator
+points(yfit$time, -log(yfit$surv), type='S', col=2) # Kaplan-Meier (default in survfit)
+points(yfit$time, yfit$time, type='l', col='grey', lty=2) # true hazard function (for lambda=1)
+legend("topleft", c("Nelson-Aalen", "Kaplan-Meier", "true"), lty=c(1,1,2), col=c(4,2,'grey'))
+
+## CI for survfit line
+points(yfit$time, -log(yfit$surv + yfit$std.err), type='S', col=2, lty=3)
+points(yfit$time, -log(yfit$surv - yfit$std.err), type='S', col=2, lty=3)
+
+## CI for N-A line
+points(yfit$time, NAest + NAvar^(1/2), type='S', col=4, lty=3)
+points(yfit$time, NAest - NAvar^(1/2), type='S', col=4, lty=3)
+```
+
+## Now try with rounded values...
+```{r}
+length(unique(y[,2]))/length(y[,2]) # proportion of event/censoring times not tied
+ysurv <- Surv(y[,2], delta)
+yfit <- summary(survfit(ysurv~1))
+
+NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # Nelson-Aalen estimator with approach 1
+NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # Nelson-Aalen variance estimator with approach 1
+
+NAestim2 <- function(surv) {
+  terms <- numeric(length(surv$time))
+  for (i in 1:length(surv$time)) {
+    if (surv$n.event[i] == 1) {terms[i] <- 1/surv$n.risk[i]}
+    else {
+      d <- surv$n.event[i]
+      terms[i] <- sum(1/(surv$n.risk[i]-0:(d-1)))
+    }
+  }
+  cumsum(terms)
+}
+NAest2 <- NAestim2(yfit) # Nelson-Aalen estimator with approach 2
+
+NAvaria2 <- function(surv) {
+  terms <- numeric(length(surv$time))
+  for (i in 1:length(surv$time)) {
+    d <- surv$n.event[i]
+    terms[i] <- sum(1/(surv$n.risk[i]-0:(d-1))^2)
+  }
+  cumsum(terms)
+}
+NAvar2 <- NAvaria2(yfit)
+```
+
+### Plot results
+```{r}
+plot(yfit$time, NAest1, type='S', xlab="time", ylab="cumulative hazard", col=4) # Nelson-Aalen estimator approach 1
+points(yfit$time, NAest2, type='S', xlab="time", ylab="cumulative hazard", col='purple') # Nelson-Aalen estimator approach 2
+points(yfit$time, -log(yfit$surv), type='S', col=2) # Kaplan-Meier (default in survfit)
+points(yfit$time, yfit$time, type='l', col='grey', lty=2) # true hazard function (for lambda=1)
+legend("topleft", c("Nelson-Aalen 1", "Nelson-Aalen 2", "Kaplan-Meier", "true"), lty=c(1,1,1,2), col=c(4,'purple' ,2,'grey'))
+ 
+## CI for survfit line
+points(yfit$time, -log(yfit$surv + yfit$std.err), type='S', col=2, lty=3)
+points(yfit$time, -log(yfit$surv - yfit$std.err), type='S', col=2, lty=3)
+
+## CI for NA1 line
+points(yfit$time, NAest1 + NAvar1^(1/2), type='S', lty=3, col=4)
+points(yfit$time, NAest1 - NAvar1^(1/2), type='S', lty=3, col=4)
+
+## CI for NA2 line
+points(yfit$time, NAest1 + NAvar2^(1/2), type='S', lty=3, col='purple')
+points(yfit$time, NAest1 - NAvar2^(1/2), type='S', lty=3, col='purple')
+```
+
+
+### Closer look at variance estimates
+```{r}
+plot(NAvar1, type='l', col=4, log='y')
+lines(NAvar2, col='purple')
+```
+
+## Varying sample size
+```{r}
+Nobs <- 20
+p.cens <- 0.1
+
+y <- makedata(nobs=Nobs)
+delta <- censoring(y[,1], p.cens)
+ysurv <- Surv(y[,2], delta)
+yfit <- summary(survfit(ysurv~1))
+
+NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # Nelson-Aalen estimator with approach 1
+NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # Nelson-Aalen variance estimator with approach 1
+NAest2 <- NAestim2(yfit) # Nelson-Aalen estimator with approach 2
+NAvar2 <- NAvaria2(yfit)
+
+plot(yfit$time, NAest1, type='S', xlab="time", ylab="cumulative hazard", col=4) # Nelson-Aalen estimator approach 1
+points(yfit$time, NAest2, type='S', xlab="time", ylab="cumulative hazard", col='purple') # Nelson-Aalen estimator approach 2
+points(yfit$time, yfit$time, type='l', col='grey', lty=2) # true hazard function (for lambda=1)
+legend("topleft", c("Nelson-Aalen 1", "Nelson-Aalen 2", "true"), lty=c(1,1,2), col=c(4,'purple' ,'grey'))
+## CI for NA1 line
+points(yfit$time, NAest1 + NAvar1^(1/2), type='S', lty=3, col=4)
+points(yfit$time, NAest1 - NAvar1^(1/2), type='S', lty=3, col=4)
+## CI for NA2 line
+points(yfit$time, NAest1 + NAvar2^(1/2), type='S', lty=3, col='purple')
+points(yfit$time, NAest1 - NAvar2^(1/2), type='S', lty=3, col='purple')
+```
+
+### Comparative plots
+This is not a good bit.
+Changing `p.cens` doesn't affect the difference between estimators.
+
+Difference of two N-A estimators:
+```{r}
+par(mfrow=c(1,3))
+p.cens <- 0.3
+y <- makedata(nobs=1000)
+delta <- censoring(y[,1], p.cens)
+for (nobs in c(20,100,1000)) {
+  yy <- y[1:nobs,2]
+  ddelta <- delta[1:nobs]
+  ysurv <- Surv(yy, ddelta)
+  yfit <- summary(survfit(ysurv~1))
+  NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # approach 1
+  NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # variance approach 1
+  NAest2 <- NAestim2(yfit) # approach 2
+  NAvar2 <- NAvaria2(yfit) # variance approach 2
+  plot(yfit$time, NAest1-NAest2, type='S', col=4, xlab='time', ylab='difference of estimators', main=paste('n.obs=', nobs, ', p.cens=',p.cens), ylim=1e-2*c(-1,1))
+  lines(yfit$time, NAest1 + NAvar2^(1/2) - NAest2 - NAvar2^(1/2), type='S', lty=3, col=4)
+  lines(yfit$time, NAest1 - NAvar2^(1/2) - NAest2 + NAvar2^(1/2), type='S', lty=3, col=4)
+}
+```
+
+Not sure what this is for:
+```{r}
+par(mfrow=c(1,3))
+lambda <- 1
+p.cens <- 0.3
+
+y <- makedata(nobs=1e6, lambda=lambda)
+delta <- censoring(y[,1], p.cens)
+for (nobs in c(1e2,1e4,1e6)) {
+  #for (p.cens in c(0,0.2,0.8)) {
+    yy <- y[1:nobs,2]
+    ddelta <- delta[1:nobs]
+    ysurv <- Surv(yy, ddelta)
+    yfit <- summary(survfit(ysurv~1))
+    NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # approach 1
+    NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # variance approach 1
+    NAest2 <- NAestim2(yfit) # approach 2
+    NAvar2 <- NAvaria2(yfit) # variance approach 2
+    plot(yfit$time, NAest1, type='S', col=4, xlab='time', ylab='cumulative hazard', main=paste('n.obs=', nobs, ', p.cens=',p.cens))
+    lines(yfit$time, NAest2, type='S', col='purple')
+    lines(yfit$time, -log(yfit$surv), type='S', col=2)
+    abline(0,lambda, col='grey')
+  #}
+}
+```
+
+This is the good one:
+```{r}
+par(mfrow=c(3,3))
+lambda <- 1
+y <- makedata(nobs=1e6, lambda=lambda)
+
+for (nobs in c(1e2,1e4,1e6)) {
+  for (p.cens in c(0,0.2,0.8)) {
+    delta <- censoring(y[,1], p.cens)
+    yy <- y[1:nobs,2]
+    ddelta <- delta[1:nobs]
+    ysurv <- Surv(yy, ddelta)
+    yfit <- summary(survfit(ysurv~1))
+    NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # approach 1
+    NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # variance approach 1
+    NAest2 <- NAestim2(yfit) # approach 2
+    NAvar2 <- NAvaria2(yfit) # variance approach 2
+    plot(yfit$time, NAest1, type='S', col=4, xlab='time', ylab='cumulative hazard', main=paste('n.obs=', nobs, ', p.cens=',p.cens))
+    lines(yfit$time, NAest2, type='S', col='purple')
+    lines(yfit$time, -log(yfit$surv), type='S', col=2)
+    abline(0,lambda, col='grey')
+  }
+}
+```
