@@ -65,7 +65,7 @@ surv.NAA(surv2)
 surv.NAA(surv1)
 
 
-surv.NAA.confint<-function(survobj,...){
+surv.NAA.confint<-function(survobj, namedataset,...){
   mfit <- survfit(survobj ~ 1, conf.type = "log-log")
   fitsumm <- summary(mfit)
   H.hat <- -log(fitsumm$surv)
@@ -75,7 +75,7 @@ surv.NAA.confint<-function(survobj,...){
   nobs <- mfit$n
   mfit.NAA <- survfit(survobj ~ 1, type='fleming')  #conf.type = "log-log",
   plot(mfit.NAA, conf.int = T, mark.time=F, col = 3, fun="cumhaz", xlab='time', 
-       ylab='cumulative hazard', main= paste("Dataset,", nobs ,"obs"))
+       ylab='cumulative hazard', main= paste("Dataset", namedataset,"-", nobs ,"obs"))
   points(c(fitsumm$time,tail(fitsumm$time,1)+1), H.tilde, col=3, type='s')
   points.default(c(fitsumm$time,tail(fitsumm$time,1)+1), H.hat, type='s',col=2,...)
   legend("bottomright", legend=c("Kaplan-Meier","Nelson-Aalen"), col=2:3,lty=1)
@@ -95,9 +95,11 @@ plot(mfit.drug.noties, conf.int = T, mark.time=F, col =  1, fun="cumhaz",xlab = 
 surv.NAA(with(drughiv.noties, Surv(time, delta)))
 
 par(mfrow=c(1,3))
-surv.NAA.confint(with(drughiv.noties, Surv(time, delta)))
-surv.NAA.confint(surv2)
-surv.NAA.confint(surv1)
+dataS<-c("drughiv.noties","")
+surv3.noties<-with(drughiv.noties, Surv(time, delta))
+surv.NAA.confint(surv3.noties, "drughiv")
+surv.NAA.confint(surv2, "alloauto")
+surv.NAA.confint(surv1, "MESS")
 
 ### Test ##################################################################
 
@@ -158,3 +160,22 @@ cat("\nRenyi test statistic Q =",Q.stat,"\nAlternative hypothesis:",type.test,"\
 
 renyi.test(summary.pooled=mfit.gastric.all,summary.strata=mfit.gastric.trt,type.test="two-sided")
 renyi.test(summary.pooled=mfit.gastric.all,summary.strata=mfit.gastric.trt,type.test="lower")
+
+###K-S test#############################
+library(YPmodel)
+data(gastric)
+names(gastric)<-c("time","delta","trt")
+survgastric <- with(gastric, Surv(time, delta))
+
+ks.test(gastric$time[gastric$trt==0],gastric$time[gastric$trt==1])
+
+fit1<-ecdf(gastric$time[gastric$trt==0])
+fit2<-ecdf(gastric$time[gastric$trt==1])
+x.range=range(gastric$time,na.rm=T)
+plot(fit1,xlim=x.range,ylim=c(0,1))
+par(new=TRUE,col="red")
+plot(fit2,xlim=x.range,ylim=c(0,1))
+
+
+
+
