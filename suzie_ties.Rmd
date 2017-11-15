@@ -13,9 +13,9 @@ library(survival)
 
 ## Define functions
 ```{r}
-makedata <- function(nobs=100, lambda=1) { #sample the uncensored event times from exponential distn
+makedata <- function(nobs=100, lambda=1, digits=2) { #sample the uncensored event times from exponential distn
   T <- rexp(nobs, lambda)
-  T.rnd <- round(T, digits=2)
+  T.rnd <- round(T, digits=digits)
   cbind(T, T.rnd)
 }
 
@@ -197,7 +197,8 @@ This is the good one:
 ```{r}
 par(mfrow=c(3,3))
 lambda <- 1
-y <- makedata(nobs=1e6, lambda=lambda)
+y <- makedata(nobs=1e6, lambda=lambda, digits=5)
+length(unique(y[,2]))/length(y[,2])
 
 for (nobs in c(1e2,1e4,1e6)) {
   for (p.cens in c(0,0.2,0.8)) {
@@ -213,7 +214,121 @@ for (nobs in c(1e2,1e4,1e6)) {
     plot(yfit$time, NAest1, type='S', col=4, xlab='time', ylab='cumulative hazard', main=paste('n.obs=', nobs, ', p.cens=',p.cens))
     lines(yfit$time, NAest2, type='S', col='purple')
     lines(yfit$time, -log(yfit$surv), type='S', col=2)
+    abline(0,lambda*(1-p.cens), col='grey')
+  }
+}
+```
+
+And compare with the no-ties version: yes, we still have the problem with the slopes.
+```{r}
+par(mfrow=c(3,3))
+lambda <- 1
+y <- makedata(nobs=1e6, lambda=lambda)
+
+for (nobs in c(1e2,1e4,1e6)) {
+  for (p.cens in c(0,0.2,0.8)) {
+    delta <- censoring(y[,1], p.cens)
+    yy <- y[1:nobs,1]
+    ddelta <- delta[1:nobs]
+    ysurv <- Surv(yy, ddelta)
+    yfit <- summary(survfit(ysurv~1))
+    NAest1 <- cumsum(yfit$n.event/yfit$n.risk) # approach 1
+    NAvar1 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # variance approach 1
+    NAest2 <- NAestim2(yfit) # approach 2
+    NAvar2 <- NAvaria2(yfit) # variance approach 2
+    plot(yfit$time, NAest1, type='S', col=4, xlab='time', ylab='cumulative hazard', main=paste('n.obs=', nobs, ', p.cens=',p.cens))
+    lines(yfit$time, NAest2, type='S', col='purple')
+    lines(yfit$time, -log(yfit$surv), type='S', col=2)
     abline(0,lambda, col='grey')
   }
 }
+```
+
+## Compare tied and untied versions of N-A
+First on data that is really continuous (as in approach 2):
+```{r}
+set.seed(123)
+par(mfrow=c(1,1))
+p.cens <- 0.3
+y <- makedata(nobs=1e3, lambda=1, digits=2)
+delta <- censoring(y[,1], 0.3)
+
+y1 <- y[,1]
+y2 <- y[,2]
+ysurv1 <- Surv(y1, delta)
+ysurv2 <- Surv(y2, delta)
+yfit1 <- summary(survfit(ysurv1~1))
+yfit2 <- summary(survfit(ysurv2~1))
+NAest1 <- cumsum(yfit1$n.event/yfit1$n.risk) #no ties
+NAest21 <- cumsum(yfit2$n.event/yfit2$n.risk) #tied approach 1
+NAest22 <- NAestim2(yfit2) #tied approach 2
+
+# plot(yfit1$time, NAest1, type='S', col=2, xlab='time', ylab='cumulative hazard', main="Nelson-Aalen and variants for tied and untied data")
+# lines(yfit2$time, NAest21, type='S', col=4)
+# lines(yfit2$time, NAest22, type='S', col='purple')
+# abline(0, 1-p.cens, col='gray', lty=2)
+# legend("topleft", c("no ties","approach 1", "approach 2", "true"), col=c(2,4,'purple','grey'), lty=c(1,1,1,2))
+
+plot(yfit1$time, NAest1-yfit1$time*(1-p.cens), type='l', col=3, xlab='time', ylab='estimation error', main="Difference of Nelson-Aalen estimators from true cumulative hazard (rounded data)", ylim=c(-0.4,0.4))
+lines(yfit2$time, NAest21-yfit2$time*(1-p.cens), type='l', col=4)
+lines(yfit2$time, NAest22-yfit2$time*(1-p.cens), type='l', col='purple')
+abline(h=0, col='grey', lty=2)
+legend("topleft", c("no ties","approach 1", "approach 2"), col=c(3,4,'purple'), lty=1)
+```
+
+Now on data that is really discrete (as in approach 1):
+Actually this bit is obsolete, skip to next chunk.
+```{r}
+pnb <- 0.12
+rnb <- 1
+p.cens <- 0.3
+set.seed(632)
+
+y <- rnbinom(1e2,rnb,pnb)
+delta <- censoring(y, p.cens)
+ysurv <- Surv(y, delta)
+yfit <- summary(survfit(ysurv~1))
+NAest21 <- cumsum(yfit$n.event/yfit$n.risk)
+NAest22 <- NAestim2(yfit)
+
+plot(yfit$time, NAest21, type='S', col=4, xlab='time', ylab='cumulative hazard', main="Nelson-Aalen estimators (discrete data)")
+lines(yfit$time, NAest22, type='S', col='purple')
+x <- seq(0, max(y), 1)
+trueline <- -pnbinom(x, rnb,pnb, lower.tail=FALSE, log=TRUE) #this is just a straight line
+lines(x, trueline*(1-p.cens), col='grey', lty=2)
+legend("topleft", c("approach 1", "approach 2","true"), col=c(4,'purple','grey'), lty=c(1,1,2))
+
+# ## not quite right, as true line only subtracted at event times...
+# plot(yfit$time, NAest21-yfit$time*(1-p.cens), type='S', col=4, xlab='time', ylab='estimation error', main="Difference of Nelson-Aalen estimators from true cumulative hazard (discrete data)")
+# lines(yfit$time, NAest22-yfit$time*(1-p.cens), type='S', col='purple')
+# abline(h=0, col='grey', lty=2)
+# legend("topleft", c("approach 1", "approach 2"), col=c(4,'purple'), lty=c(1,1))
+```
+
+Am I being stupid...? A: yes. Let's use Geometric distn.
+```{r}
+pnb <- 0.1
+rnb <- 1
+p.cens <- 0.3
+set.seed(321)
+
+y <- rgeom(1e3,pnb)
+delta <- censoring(y, p.cens)
+ysurv <- Surv(y, delta)
+yfit <- summary(survfit(ysurv~1))
+NAest21 <- cumsum(yfit$n.event/yfit$n.risk)
+NAest22 <- NAestim2(yfit)
+
+# plot(yfit$time, NAest21, type='S', col=4, xlab='time', ylab='cumulative hazard', main="Nelson-Aalen estimators (discrete data)")
+# lines(yfit$time, NAest22, type='S', col='purple')
+# x <- 0:max(y)
+# #trueline <- -pgeom(x, pnb, lower.tail=FALSE, log=TRUE) #this is just a straight line
+# #lines(x, trueline*(1-p.cens), col='grey', lty=2)
+# lines(x, -x*log(1-pnb)*(1-p.cens), col='grey', lty=2)
+# legend("topleft", c("approach 1", "approach 2","true"), col=c(4,'purple','grey'), lty=c(1,1,2))
+
+plot(yfit$time, NAest21+yfit$time*log(1-pnb)*(1-p.cens), type='l', col=4, xlab='time', ylab='estimation error', main="Difference of Nelson-Aalen estimators from true cumulative hazard (discrete data)", ylim=c(-0.2,0.65))
+lines(yfit$time, NAest22+yfit$time*log(1-pnb)*(1-p.cens), type='l', col='purple')
+abline(h=0, col='grey', lty=2)
+legend("topleft", c("approach 1", "approach 2"), col=c(4,'purple'), lty=c(1,1))
 ```
