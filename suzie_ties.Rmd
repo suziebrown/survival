@@ -202,6 +202,8 @@ length(unique(y[,2]))/length(y[,2])
 
 for (nobs in c(1e2,1e4,1e6)) {
   for (p.cens in c(0,0.2,0.8)) {
+    dig = ifelse(nobs==1e2, 1,ifelse(nobs==1e4, 3, 5))
+    y <- makedata(nobs=1e6, lambda=lambda, digits=dig) #roughly 30% unique times in each case
     delta <- censoring(y[,1], p.cens)
     yy <- y[1:nobs,2]
     ddelta <- delta[1:nobs]
@@ -215,9 +217,57 @@ for (nobs in c(1e2,1e4,1e6)) {
     lines(yfit$time, NAest2, type='S', col='purple')
     lines(yfit$time, -log(yfit$surv), type='S', col=2)
     abline(0,lambda*(1-p.cens), col='grey')
-  }
+  };
 }
 ```
+Now try with ggplot2:
+```{r}
+lambda <- 1
+y <- makedata(nobs=1e6, lambda=lambda, digits=5)
+nobs <- c(1e2,1e4,1e6)
+p.cens <- c(0,0.2,0.8)
+
+NOBS <- numeric(0)
+PCENS <- numeric(0)
+NAest1 <- numeric(0)
+NAest2 <- numeric(0)
+NAvar1 <- numeric(0)
+NAvar2 <- numeric(0)
+ytime <- numeric(0)
+ySurv <- numeric(0)
+
+for (i in 1:3) {
+  for (j in 1:3) {
+    delta <- censoring(y[,1], p.cens[j])
+    yy <- y[1:nobs[i],2]
+    ddelta <- delta[1:nobs[i]]
+    ysurv <- Surv(yy, ddelta)
+    yfit <- summary(survfit(ysurv~1))
+    ySurv <- c(ySurv, yfit$surv)
+    ytime <- c(ytime, yfit$time)
+    NAest1 <- c(NAest1, cumsum(yfit$n.event/yfit$n.risk)) # approach 1
+    NAvar1 <- c(NAvar1, cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3)) # variance approach 1
+    NAest2 <- c(NAest2, NAestim2(yfit)) # approach 2
+    NAvar2 <- c(NAvar2, NAvaria2(yfit)) # variance approach 2
+    # plot(yfit$time, NAest1, type='S', col=4, xlab='time', ylab='cumulative hazard', main=paste('n.obs=', nobs, ', p.cens=',p.cens))
+    # lines(yfit$time, NAest2, type='S', col='purple')
+    # lines(yfit$time, -log(yfit$surv), type='S', col=2)
+    # abline(0,lambda*(1-p.cens), col='grey')
+    NOBS <- c(NOBS, rep(nobs[i], length(yfit$time)))
+    PCENS <- c(PCENS, rep(p.cens[j], length(yfit$time)))
+  }
+}
+
+df <- data.frame(KM=-log(ySurv), NA1=NAest1, NA2=NAest2, var1=NAvar1, var2=NAvar2, time=ytime, n.obs=NOBS, p.cens=PCENS)
+
+ggplot(df, aes(time)) +
+  geom_step(aes(y=KM, color="Kaplan-Meier")) +
+  geom_step(aes(y=NA2, color="Nelson-Aalen")) +
+  facet_wrap(~n.obs+p.cens, scales="free", labeller=label_both) +
+  ylab("estimated cumulative hazard") +
+  ggtitle("Kaplan-Meier versus tie-adjusted Nelson-Aalen estimates, varying sample size and amount of censoring")
+```
+
 
 And compare with the no-ties version: yes, we still have the problem with the slopes.
 ```{r}
@@ -262,6 +312,8 @@ yfit2 <- summary(survfit(ysurv2~1))
 NAest1 <- cumsum(yfit1$n.event/yfit1$n.risk) #no ties
 NAest21 <- cumsum(yfit2$n.event/yfit2$n.risk) #tied approach 1
 NAest22 <- NAestim2(yfit2) #tied approach 2
+NAvar21 <- cumsum((yfit2$n.risk-yfit2$n.event)*yfit2$n.event/yfit2$n.risk^3) #variance tied 1
+NAvar22 <- NAvaria2(yfit2) #variance tied 2
 
 # plot(yfit1$time, NAest1, type='S', col=2, xlab='time', ylab='cumulative hazard', main="Nelson-Aalen and variants for tied and untied data")
 # lines(yfit2$time, NAest21, type='S', col=4)
@@ -274,6 +326,20 @@ lines(yfit2$time, NAest21-yfit2$time*(1-p.cens), type='l', col=4)
 lines(yfit2$time, NAest22-yfit2$time*(1-p.cens), type='l', col='purple')
 abline(h=0, col='grey', lty=2)
 legend("topleft", c("no ties","approach 1", "approach 2"), col=c(3,4,'purple'), lty=1)
+```
+Try with ggplot2:
+```{r}
+library(ggplot2)
+
+df <- data.frame(time=yfit2$time, NA1=NAest21, NA2=NAest22, true=yfit2$time*(1-p.cens), var1=NAvar21, var2=NAvar22)
+
+ggplot(df, aes(x=time)) +
+  geom_line(aes(y=NA1-true, color="NA1")) + 
+  geom_line(aes(y=NA2-true, color="NA2")) +
+  geom_ribbon(aes(ymin=NA1-true-var1^(1/2), ymax=NA1-true+var1^(1/2), fill="NA1"), alpha=0.2, show.legend = FALSE) +
+  geom_ribbon(aes(ymin=NA2-true-var2^(1/2), ymax=NA2-true+var2^(1/2), fill="NA2"), alpha=0.2, show.legend = FALSE) +
+  ylab("estimation error") + ggtitle("Difference of estimators from true cumulative hazard (rounded continuous data)")
+
 ```
 
 Now on data that is really discrete (as in approach 1):
@@ -307,7 +373,7 @@ legend("topleft", c("approach 1", "approach 2","true"), col=c(4,'purple','grey')
 
 Am I being stupid...? A: yes. Let's use Geometric distn.
 ```{r}
-pnb <- 0.1
+pnb <- 0.01
 rnb <- 1
 p.cens <- 0.3
 set.seed(321)
@@ -316,8 +382,10 @@ y <- rgeom(1e3,pnb)
 delta <- censoring(y, p.cens)
 ysurv <- Surv(y, delta)
 yfit <- summary(survfit(ysurv~1))
-NAest21 <- cumsum(yfit$n.event/yfit$n.risk)
-NAest22 <- NAestim2(yfit)
+NAest21 <- cumsum(yfit$n.event/yfit$n.risk) #approach 1
+NAest22 <- NAestim2(yfit) #approach 2
+NAvar21 <- cumsum((yfit$n.risk-yfit$n.event)*yfit$n.event/yfit$n.risk^3) # variance approach 1
+NAvar22 <- NAvaria2(yfit) # variance approach 2
 
 # plot(yfit$time, NAest21, type='S', col=4, xlab='time', ylab='cumulative hazard', main="Nelson-Aalen estimators (discrete data)")
 # lines(yfit$time, NAest22, type='S', col='purple')
@@ -326,9 +394,58 @@ NAest22 <- NAestim2(yfit)
 # #lines(x, trueline*(1-p.cens), col='grey', lty=2)
 # lines(x, -x*log(1-pnb)*(1-p.cens), col='grey', lty=2)
 # legend("topleft", c("approach 1", "approach 2","true"), col=c(4,'purple','grey'), lty=c(1,1,2))
+# # also add CIs:
+# lines(yfit$time, NAest21+NAvar21, type='S', col=4, lty=3)
+# lines(yfit$time, NAest21-NAvar21, type='S', col=4, lty=3)
+# lines(yfit$time, NAest22+NAvar22, type='S', col='purple', lty=3)
+# lines(yfit$time, NAest22-NAvar22, type='S', col='purple', lty=3)
 
 plot(yfit$time, NAest21+yfit$time*log(1-pnb)*(1-p.cens), type='l', col=4, xlab='time', ylab='estimation error', main="Difference of Nelson-Aalen estimators from true cumulative hazard (discrete data)", ylim=c(-0.2,0.65))
 lines(yfit$time, NAest22+yfit$time*log(1-pnb)*(1-p.cens), type='l', col='purple')
 abline(h=0, col='grey', lty=2)
 legend("topleft", c("approach 1", "approach 2"), col=c(4,'purple'), lty=c(1,1))
+# to add also CIs:
+lines(yfit$time, NAest21+NAvar21+yfit$time*log(1-pnb)*(1-p.cens), type='l', col=4, lty=3)
+lines(yfit$time, NAest21-NAvar21+yfit$time*log(1-pnb)*(1-p.cens), type='l', col=4, lty=3)
+lines(yfit$time, NAest22+NAvar22+yfit$time*log(1-pnb)*(1-p.cens), type='l', col='purple', lty=3)
+lines(yfit$time, NAest22-NAvar22+yfit$time*log(1-pnb)*(1-p.cens), type='l', col='purple', lty=3)
+```
+
+Try with ggplot2:
+```{r}
+library(ggplot2)
+
+df <- data.frame(time=yfit$time, NA1=NAest21, NA2=NAest22, true=-yfit$time*log(1-pnb)*(1-p.cens), var1=NAvar21, var2=NAvar22)
+
+ggplot(df, aes(x=time)) +
+  geom_line(aes(y=NA1-true, color="NA1")) + 
+  geom_line(aes(y=NA2-true, color="NA2")) +
+  geom_ribbon(aes(ymin=NA1-true-var1^(1/2), ymax=NA1-true+var1^(1/2), fill="NA1"), alpha=0.2, show.legend = FALSE) +
+  geom_ribbon(aes(ymin=NA2-true-var2^(1/2), ymax=NA2-true+var2^(1/2), fill="NA2"), alpha=0.2, show.legend = FALSE) +
+  ylab("estimation error") + ggtitle("Difference of estimators from true cumulative hazard (discrete data)")
+
+```
+
+Example for presentation:
+```{r}
+T <- c(0, 0.9, 3.8, 4.1,5)
+Tprime <- round(T, digits=0)
+N.A <- c(0, 0.2, 0.45, 0.738, 0.738)
+Disc <- c(0, 0.2, 0.7, 0.7, 0.7)
+Cts <- c(0, 0.2, 0.738, 0.738, 0.738)
+
+
+par(mfrow=c(2,1),fig=c(0.1,0.9,0.8,0.9), mai=c(0.1,0.1,0.1,0.1))
+plot(NA,xlim=c(0,5), ylim=c(0,1),axes=F,ann=F);
+axis(1)
+points(T[2:4],rep(0.45,length(T[2:4])), col=1, pch=16)
+text(T[2:4], 0.2, c("T1", "T2", "T3"))
+points(Tprime[2:4],rep(0.65,length(Tprime[2:4])), col=2, pch=16)
+text(Tprime[2:3], 0.9, c("T1", "T2=T3"), col=2)
+
+par(fig=c(0.1,0.9,0.1,0.7), new=TRUE)
+plot(T, N.A, type="s", col=1, lwd=2, xlab="time", ylab="cumulative hazard etsimate")
+legend("bottomright", c("N-A", "discrete", "contiuous"), col=c(1,2,4), lwd=2)
+points(Tprime, Disc, type="s", col=2, lwd=2)
+points(Tprime, Cts, type="s", col=4, lwd=2)
 ```
